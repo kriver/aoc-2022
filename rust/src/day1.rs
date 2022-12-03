@@ -34,7 +34,7 @@ pub fn part2(calories: Vec<String>) -> u32 {
 
 #[cfg(test)]
 mod tests {
-    use crate::day1::{input, part1, part2};
+    use super::*;
 
     #[test]
     fn test_part1() {

@@ -173,7 +173,7 @@ pub fn part2() -> u32 {
 
 #[cfg(test)]
 mod tests {
-    use crate::day2::{part1, part2};
+    use super::*;
 
     #[test]
     fn test_part1() {
@@ -186,6 +186,6 @@ mod tests {
     fn test_part2() {
         let score = part2();
         println!("Score is {}", score);
-        assert_eq!(part2(), 12014);
+        assert_eq!(score, 12014);
     }
 }

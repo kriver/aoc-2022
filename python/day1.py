@@ -1,4 +1,4 @@
-from util import as_int, load
+from util import load
 
 
 def part1(calories):

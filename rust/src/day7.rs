@@ -2,15 +2,21 @@ use std::collections::HashMap;
 
 use crate::util::load;
 
-enum File {
-    Plain(usize),
-    Folder(HashMap<String, File>),
+enum FileType {
+    Plain,
+    Folder,
+}
+
+struct File {
+    ftype: FileType,
+    contents: Option<HashMap<String, File>>,
+    size: usize,
 }
 
 fn add_to_folder(folder: &mut File, name: String, entry: File) {
-    match folder {
-        File::Plain(_) => panic!("cannot add to plain file"),
-        File::Folder(ref mut contents) => drop(contents.insert(name, entry)),
+    match folder.ftype {
+        FileType::Plain => panic!("cannot add to plain file"),
+        FileType::Folder => drop(folder.contents.unwrap().insert(name, entry)),
     }
 }
 
@@ -27,21 +33,32 @@ fn parse_lines(lines: &[String], mut i: usize, folder: &mut File) -> usize {
                 "cd" => match token[2] {
                     ".." => return i,
                     name => {
-                        if let File::Folder(ref mut map) = folder {
-                            if let Some(ref mut f) = map.get(name) {
-                                i = parse_lines(lines, i, f);
-                            }
+                        if let Some(ref mut c) = folder.contents {
+                            let mut f = c.get(name).unwrap();
+                            i = parse_lines(lines, i, f);
                         }
                     }
                 },
                 "ls" => (), // nop
                 _ => panic!("unexpected cmd"),
             },
-            "dir" => add_to_folder(folder, token[1].to_owned(), File::Folder(HashMap::new())),
+            "dir" => add_to_folder(
+                folder,
+                token[1].to_owned(),
+                File {
+                    ftype: FileType::Folder,
+                    contents: Some(HashMap::new()),
+                    size: 0,
+                },
+            ),
             sz => add_to_folder(
                 folder,
                 token[1].to_owned(),
-                File::Plain(sz.parse::<usize>().unwrap()),
+                File {
+                    ftype: FileType::Plain,
+                    contents: None,
+                    size: sz.parse::<usize>().unwrap(),
+                },
             ),
         };
     }
@@ -49,7 +66,11 @@ fn parse_lines(lines: &[String], mut i: usize, folder: &mut File) -> usize {
 
 fn parse_input() -> File {
     let lines: Vec<String> = load("data/day7.txt");
-    let mut fs = File::Folder(HashMap::new());
+    let mut fs = File {
+        ftype: FileType::Folder,
+        contents: Some(HashMap::new()),
+        size: 0,
+    };
     parse_lines(&lines, 0, &mut fs);
     fs
 }

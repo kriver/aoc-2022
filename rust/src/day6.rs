@@ -3,7 +3,7 @@ use std::collections::HashMap;
 
 use crate::util::load;
 
-fn input() -> Vec<String> {
+pub fn input() -> Vec<String> {
     load("data/day6.txt")
 }
 

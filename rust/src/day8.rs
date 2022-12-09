@@ -147,18 +147,16 @@ pub fn part2() -> usize {
 }
 
 mod tests {
-    use super::*;
-
     #[test]
     fn test_part1() {
-        let num = part1();
+        let num = super::part1();
         println!("Number of visible trees: {}", num);
         assert_eq!(num, 1703);
     }
 
     #[test]
     fn test_part2() {
-        let score = part2();
+        let score = super::part2();
         println!("Highest scenic score: {}", score);
         assert_eq!(score, 496650);
     }

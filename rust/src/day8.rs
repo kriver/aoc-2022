@@ -1,4 +1,4 @@
-use std::{cmp::max, collections::HashSet};
+use std::{cmp::max, collections::HashSet, iter::repeat};
 
 use crate::util::load;
 
@@ -16,120 +16,72 @@ fn input() -> Vec<Vec<u8>> {
         .collect()
 }
 
-fn is_visible(
-    trees: &Vec<Vec<u8>>,
-    visible: &mut HashSet<Coord>,
-    x: usize,
-    y: usize,
-    mut max: u8,
-) -> u8 {
-    if trees[y][x] > max {
-        visible.insert(Coord { x, y });
-        max = trees[y][x]
-    }
-    max
-}
-
 pub fn part1() -> usize {
+    fn look(
+        trees: &Vec<Vec<u8>>,
+        visible: &mut HashSet<Coord>,
+        mut max: u8,
+        coords: impl Iterator<Item = (usize, usize)>,
+    ) {
+        for (x, y) in coords {
+            max = if trees[y][x] > max {
+                visible.insert(Coord { x, y });
+                trees[y][x]
+            } else {
+                max
+            };
+            if max == 9 {
+                break;
+            }
+        }
+    }
+
     let trees = input();
     let mut visible: HashSet<Coord> = HashSet::new();
     let (h, w) = (trees.len(), trees[0].len());
     // horizontal
     for y in 1..h - 1 {
         // look right
-        let mut max = trees[y][0];
-        let mut x = 1;
-        while x < w - 1 {
-            max = is_visible(&trees, &mut visible, x, y, max);
-            if max == 9 {
-                break;
-            }
-            x += 1;
-        }
+        let max = trees[y][0];
+        look(&trees, &mut visible, max, (1..(w - 1)).zip(repeat(y)));
         // look left
-        let mut max = trees[y][w - 1];
-        let mut x = w - 2;
-        while x > 0 {
-            max = is_visible(&trees, &mut visible, x, y, max);
-            if max == 9 {
-                break;
-            }
-            x -= 1;
-        }
+        let max = trees[y][w - 1];
+        look(&trees, &mut visible, max, (1..(w - 1)).rev().zip(repeat(y)));
     }
     for x in 1..w - 1 {
         // look down
-        let mut max = trees[0][x];
-        let mut y = 1;
-        while y < h - 1 {
-            max = is_visible(&trees, &mut visible, x, y, max);
-            if max == 9 {
-                break;
-            }
-            y += 1;
-        }
+        let max = trees[0][x];
+        look(&trees, &mut visible, max, repeat(x).zip(1..(h - 1)));
         // look up
-        let mut max = trees[h - 1][x];
-        let mut y = h - 2;
-        while y > 0 {
-            max = is_visible(&trees, &mut visible, x, y, max);
-            if max == 9 {
-                break;
-            }
-            y -= 1;
-        }
+        let max = trees[h - 1][x];
+        look(&trees, &mut visible, max, repeat(x).zip((1..(h - 1)).rev()));
     }
     visible.len() + 2 * (w + h - 2) // the border
 }
 
 fn tree_score(trees: &Vec<Vec<u8>>, x: usize, y: usize) -> usize {
+    fn look(trees: &Vec<Vec<u8>>, max: u8, coords: impl Iterator<Item = (usize, usize)>) -> usize {
+        let mut cnt = 0;
+        for (x, y) in coords {
+            cnt += 1;
+            if trees[y][x] >= max {
+                break;
+            }
+        }
+        cnt
+    }
+
     let (h, w) = (trees.len(), trees[0].len());
     let max = trees[y][x];
     let mut score = 1;
-    if score > 0 {
-        // look left
-        let mut cnt = 0;
-        for ix in (0..x).rev() {
-            cnt += 1;
-            if trees[y][ix] >= max {
-                break;
-            }
-        }
-        score *= cnt;
-    }
-    if score > 0 {
-        // look right
-        let mut cnt = 0;
-        for ix in (x + 1)..w {
-            cnt += 1;
-            if trees[y][ix] >= max {
-                break;
-            }
-        }
-        score *= cnt;
-    }
-    if score > 0 {
-        // look up
-        let mut cnt = 0;
-        for iy in (0..y).rev() {
-            cnt += 1;
-            if trees[iy][x] >= max {
-                break;
-            }
-        }
-        score *= cnt;
-    }
-    if score > 0 {
-        // look down
-        let mut cnt = 0;
-        for iy in (y + 1)..h {
-            cnt += 1;
-            if trees[iy][x] >= max {
-                break;
-            }
-        }
-        score *= cnt;
-    }
+    // look left
+    score *= look(trees, max, (0..x).rev().zip(repeat(y)));
+    // look right
+    score *= look(trees, max, ((x + 1)..w).zip(repeat(y)));
+    // look up
+    score *= look(trees, max, repeat(x).zip((0..y).rev()));
+    // look down
+    score *= look(trees, max, repeat(x).zip((y + 1)..h));
     score
 }
 

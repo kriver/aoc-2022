@@ -1,22 +1,23 @@
-use std::collections::HashMap;
+use std::{cell::Cell, collections::HashMap};
 
 use crate::util::load;
 
+#[derive(Debug)]
 enum File {
     Plain(usize),
-    Folder(HashMap<String, File>),
+    Folder(HashMap<String, File>, Cell<usize>),
 }
 
 fn add_to_folder(folder: &mut File, name: String, entry: File) {
     match folder {
         File::Plain(_) => panic!("cannot add to plain file"),
-        File::Folder(ref mut contents) => drop(contents.insert(name, entry)),
+        File::Folder(ref mut contents, _) => drop(contents.insert(name, entry)),
     }
 }
 
-fn parse_lines(mut it: impl Iterator<Item = String>, folder: &mut File) {
+fn parse_lines(it: &mut impl Iterator<Item = String>, folder: &mut File) {
     loop {
-        match it.next() {
+        match &it.next() {
             None => return,
             Some(line) => {
                 let token: Vec<&str> = line.split(' ').collect();
@@ -25,8 +26,8 @@ fn parse_lines(mut it: impl Iterator<Item = String>, folder: &mut File) {
                         "cd" => match token[2] {
                             ".." => return,
                             name => {
-                                if let File::Folder(ref mut map) = folder {
-                                    if let Some(ref mut f) = map.get(name) {
+                                if let File::Folder(ref mut map, _) = folder {
+                                    if let Some(f) = map.get_mut(name) {
                                         parse_lines(it, f);
                                     }
                                 }
@@ -35,9 +36,11 @@ fn parse_lines(mut it: impl Iterator<Item = String>, folder: &mut File) {
                         "ls" => (), // nop
                         _ => panic!("unexpected cmd"),
                     },
-                    "dir" => {
-                        add_to_folder(folder, token[1].to_owned(), File::Folder(HashMap::new()))
-                    }
+                    "dir" => add_to_folder(
+                        folder,
+                        token[1].to_owned(),
+                        File::Folder(HashMap::new(), Cell::new(0)),
+                    ),
                     sz => add_to_folder(
                         folder,
                         token[1].to_owned(),
@@ -51,29 +54,85 @@ fn parse_lines(mut it: impl Iterator<Item = String>, folder: &mut File) {
 
 fn parse_input() -> File {
     let lines: Vec<String> = load("data/day7.txt");
-    let mut fs = File::Folder(HashMap::new());
-    parse_lines(lines.into_iter(), &mut fs);
+    let mut fs = File::Folder(HashMap::new(), Cell::new(0));
+    parse_lines(&mut lines.into_iter(), &mut fs);
     fs
 }
 
+fn calculate_size(fs: &File, limit: usize) -> (usize, usize) {
+    let mut total_sz = 0;
+    let mut this_sz = 0;
+    if let File::Folder(contents, cell) = fs {
+        for f in contents.values() {
+            match f {
+                File::Plain(sz) => this_sz += sz,
+                File::Folder(_, _) => {
+                    let (total, sub) = calculate_size(f, limit);
+                    total_sz += total + (if sub <= limit { sub } else { 0 });
+                    this_sz += sub;
+                }
+            }
+        }
+        cell.set(this_sz);
+    }
+    (total_sz, this_sz)
+}
+
+fn find_to_delete(
+    contents: &HashMap<String, File>,
+    at_least: usize,
+    mut current_sz: usize,
+) -> usize {
+    for f in contents.values() {
+        if let File::Folder(sub_contents, cell) = f {
+            let sz = cell.get();
+            if at_least <= sz && sz < current_sz {
+                current_sz = sz;
+            }
+            current_sz = find_to_delete(sub_contents, at_least, current_sz);
+        }
+    }
+    current_sz
+}
+
 pub fn part1() -> usize {
-    0
+    let sz_limit = 100000;
+
+    let fs = parse_input();
+    calculate_size(&fs, sz_limit).0
+}
+
+pub fn part2() -> usize {
+    let fs = parse_input();
+    calculate_size(&fs, 100000);
+
+    let disk_sz = 70000000;
+    let free_sz_required = 30000000;
+    let used_sz = if let File::Folder(_, sz) = &fs {
+        sz.get()
+    } else {
+        panic!("oops")
+    };
+    let min_delete_sz = free_sz_required - (disk_sz - used_sz);
+    if let File::Folder(contents, _) = fs {
+        find_to_delete(&contents, min_delete_sz, disk_sz)
+    } else {
+        0
+    }
 }
 
 mod tests {
-    use super::*;
-
     #[test]
     fn test_part1() {
-        let sz = part1();
+        let sz = super::part1();
         println!("Total size of -100K directories: {}", sz);
         assert_eq!(sz, 1844187);
     }
 
     #[test]
     fn test_part2() {
-        // let count = part2();
-        // println!("Overlap count {}", count);
-        // assert_eq!(count, 924);
+        let sz = super::part2();
+        println!("Freeing up a directory of size: {}", sz);
+        assert_eq!(sz, 4978279);
     }
 }

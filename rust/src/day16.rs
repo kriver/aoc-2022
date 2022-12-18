@@ -1,21 +1,53 @@
 use std::{
-    collections::{HashMap, HashSet},
-    str::FromStr,
+    cmp::Ordering,
+    collections::{BinaryHeap, HashMap},
 };
 
 use crate::util::load;
 
 #[derive(Debug)]
+struct QueueItem<'a> {
+    time_left: u32,
+    name: &'a str,
+    pressure: u32,
+    visited: u64,
+}
+
+impl PartialOrd for QueueItem<'_> {
+    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
+        Some(self.cmp(other))
+    }
+}
+
+impl Ord for QueueItem<'_> {
+    fn cmp(&self, other: &Self) -> Ordering {
+        match self.pressure.cmp(&other.pressure) {
+            Ordering::Equal => match self.time_left.cmp(&other.time_left) {
+                Ordering::Equal => Ordering::Equal,
+                ord => ord,
+            },
+            ord => ord,
+        }
+    }
+}
+impl PartialEq for QueueItem<'_> {
+    fn eq(&self, other: &Self) -> bool {
+        self.cmp(other) == Ordering::Equal
+    }
+}
+
+impl Eq for QueueItem<'_> {}
+
+#[derive(Debug)]
 struct Room {
+    id: usize,
     name: String,
     rate: u32,
     tunnels: Vec<String>,
 }
 
-impl FromStr for Room {
-    type Err = ();
-
-    fn from_str(s: &str) -> Result<Self, Self::Err> {
+impl Room {
+    fn load(s: &str, id: usize) -> Self {
         let tokens: Vec<&str> = s.split([' ', '=', ';', ',']).collect();
         let name = tokens[1].to_owned();
         let rate = tokens[5].parse::<u32>().unwrap();
@@ -24,50 +56,52 @@ impl FromStr for Room {
             .filter(|t| !t.is_empty())
             .map(|&t| t.to_owned())
             .collect();
-        Ok(Room {
+        Room {
+            id,
             name,
             rate,
             tunnels,
-        })
+        }
     }
 }
 
+#[derive(Debug)]
 struct Rooms {
-    rooms: Vec<Room>,
-    name2id: HashMap<String, usize>,
+    rooms: HashMap<String, Room>,
     valves: Vec<String>,
+    distances: Vec<Vec<u32>>,
 }
 
 impl Rooms {
     fn load(filename: &str) -> Self {
-        let rooms: Vec<Room> = load(filename);
-        let map = rooms
-            .iter()
+        let rooms: HashMap<String, Room> = load::<String>(filename)
+            .into_iter()
             .enumerate()
-            .map(|(id, v)| (v.name.to_owned(), id))
+            .map(|(i, l)| Room::load(&l, i))
+            .map(|r| (r.name.to_owned(), r))
             .collect();
         let valves = rooms
             .iter()
-            .filter(|r| r.rate > 0)
-            .map(|r| r.name.to_owned())
+            .filter(|(_, r)| r.rate > 0)
+            .map(|(_, r)| r.name.to_owned())
             .collect();
         Rooms {
             rooms,
-            name2id: map,
             valves,
+            distances: Vec::new(),
         }
     }
 
     // Floyd-Warshall
-    fn distances(&self) -> Vec<Vec<u32>> {
+    fn init_distances(&mut self) {
         let n = self.rooms.len();
         let mut m = vec![vec![1000; n]; n];
-        for (id, v) in self.rooms.iter().enumerate() {
-            m[id][id] = 0;
-            for t in &v.tunnels {
-                let other = self.name2id[t];
-                m[id][other] = 1;
-                m[other][id] = 1;
+        for (_, r) in &self.rooms {
+            m[r.id][r.id] = 0;
+            for t in &r.tunnels {
+                let other = self.rooms[t].id;
+                m[r.id][other] = 1;
+                m[other][r.id] = 1;
             }
         }
         for k in 0..n {
@@ -79,137 +113,56 @@ impl Rooms {
             }
             m = new;
         }
-        m
+        self.distances = m;
     }
 
-    fn pressure_for(
-        &self,
-        time_left: u32,
-        start: &str,
-        valves: &Vec<String>,
-        distances: &Vec<Vec<u32>>,
-    ) -> u32 {
-        let mut tl = time_left;
-        let mut pos = self.name2id[start];
-        let mut pressure = 0;
-        for v in valves {
-            let next = self.name2id[v];
-            let d = distances[pos][next] + 1; // one extra for opening the valve
-            if d > tl {
-                break;
-            }
-            tl -= d;
-            pressure += tl * self.rooms[next].rate;
-            pos = next;
-        }
-        pressure
-    }
-
-    fn max_pressure(
-        &self,
-        time_left: u32,
-        start: &str,
-        valves: &mut Vec<String>,
-        distances: &Vec<Vec<u32>>,
-    ) -> u32 {
-        // loop over all permutations of rooms with valves (Heap's algorithm)
-        let n = valves.len();
-        let mut c = vec![0; n];
-        let mut max_pressure = self.pressure_for(time_left, start, valves, distances);
-        let mut i = 1;
-        let mut cnt = 0;
-        while i < n {
-            if c[i] < i {
-                if i % 2 == 0 {
-                    valves.swap(0, i);
-                } else {
-                    valves.swap(c[i], i);
-                }
-                let pressure = self.pressure_for(time_left, start, valves, distances);
-                max_pressure = max_pressure.max(pressure);
-                c[i] += 1;
-                i = 1;
-            } else {
-                c[i] = 0;
-                i += 1;
-            }
-            cnt += 1;
-            if cnt % 1000000 == 0 {
-                println!("{:8} - {:5} - {:?}", cnt, max_pressure, valves);
-            }
-        }
-        max_pressure
-    }
-
-    fn with_look_ahead(&self, look_ahead: usize) -> u32 {
-        let distances = self.distances();
-        let mut pressure = 0;
-        let mut visited: HashSet<String> = HashSet::new();
-        let mut tl = 30;
-        let mut prev = "AA".to_owned();
-        while self.valves.len() - visited.len() >= 4 {
-            let mut best_p = 0; // pressure
-            let mut best_n = None; // next
-            let mut best_d = 0; // delta
-            let mut iterators = vec![self.valves.iter(); look_ahead];
-            let mut valves = iterators
-                .iter_mut()
-                .map(|it| it.next().unwrap().to_owned())
-                .collect::<Vec<_>>();
-            'outer: loop {
-                let current: HashSet<String> = HashSet::from_iter(valves.iter().map(|v| v.clone()));
-                if current.len() == look_ahead && visited.intersection(&current).count() == 0 {
-                    // all different valves, and none yet visited
-                    let p = self.pressure_for(tl, &prev, &mut valves, &distances);
-                    if p > best_p {
-                        best_p = p;
-                        best_n = Some(valves[0].to_owned());
-                        best_d = distances[self.name2id[&prev]][self.name2id[&valves[0]]] + 1;
-                    }
-                }
-                for i in 0..look_ahead {
-                    match iterators[i].next() {
-                        Some(v) => {
-                            valves[i] = v.to_owned();
-                            break;
+    fn find_max_pressure<'a>(&'a self, q: &mut BinaryHeap<QueueItem<'a>>) -> u32 {
+        let mut max = 0;
+        loop {
+            match q.pop() {
+                None => return max,
+                Some(qi) => {
+                    max = max.max(qi.pressure);
+                    let current = &self.rooms[qi.name];
+                    for v in self.valves.iter() {
+                        let other = &self.rooms[v];
+                        if qi.visited & (1 << other.id) > 0 {
+                            continue;
                         }
-                        None => {
-                            if i == look_ahead - 1 {
-                                break 'outer;
-                            }
-                            iterators[i] = self.valves.iter();
-                            valves[i] = iterators[i].next().unwrap().to_owned();
+                        let cost = self.distances[current.id][other.id] + 1;
+                        if qi.time_left >= cost {
+                            let tl = qi.time_left - cost;
+                            q.push(QueueItem {
+                                time_left: tl,
+                                name: &other.name,
+                                pressure: qi.pressure + tl * other.rate,
+                                visited: qi.visited | (1 << other.id),
+                            });
                         }
                     }
                 }
             }
-            match best_n {
-                None => break,
-                Some(n) => {
-                    prev = n.clone();
-                    tl -= best_d;
-                    println!("{:2} Best = {} with {}", tl, n, best_p);
-                    pressure += tl * self.rooms[self.name2id[&n]].rate;
-                    println!("   Total pressure now at {}", pressure);
-                    visited.insert(n);
-                    println!("   Visited {}/{}", visited.len(), self.valves.len());
-                }
-            }
         }
-        let mut remaining: Vec<String> = HashSet::from_iter(self.valves.iter().map(|v| v.clone()))
-            .difference(&visited)
-            .map(|s| s.to_owned())
-            .collect();
-        println!("Remains {:?}", remaining);
-        let p = self.max_pressure(tl, &prev, &mut remaining, &distances);
-        println!("Remaining pressure is {}", p);
-        pressure + p
     }
 }
 
 pub fn part1() -> u32 {
-    let rooms = Rooms::load("data/day16.txt");
-    rooms.with_look_ahead(6)
+    let mut rooms = Rooms::load("data/day16.txt");
+    rooms.init_distances();
+    let mut queue = BinaryHeap::new();
+    queue.push(QueueItem {
+        time_left: 30,
+        name: "AA",
+        pressure: 0,
+        visited: 0,
+    });
+    rooms.find_max_pressure(&mut queue)
+}
+
+pub fn part2() -> u32 {
+    let mut rooms = Rooms::load("data/day16-test.txt");
+    rooms.init_distances();
+    0
 }
 
 mod tests {
@@ -221,5 +174,9 @@ mod tests {
     }
 
     #[test]
-    fn test_part2() {}
+    fn test_part2() {
+        let pressure = super::part2();
+        println!("Pressure: {}", pressure);
+        assert_eq!(pressure, 0); // too low 2420
+    }
 }

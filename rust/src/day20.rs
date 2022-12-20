@@ -5,7 +5,7 @@ use crate::util::load;
 #[derive(Debug)]
 struct Item {
     v: i64,
-    moved: bool,
+    id: i64,
 }
 
 impl FromStr for Item {
@@ -14,62 +14,35 @@ impl FromStr for Item {
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         Ok(Item {
             v: s.parse().unwrap(),
-            moved: false,
+            id: 0,
         })
     }
 }
 
-fn mod_add(a: i64, b: i64, m: i64) -> (i64, i64) {
-    let mut sum = a + b;
-    let mut wrap = sum / m;
-    sum %= m;
-    if sum < 0 {
-        while sum < 0 {
-            sum += m;
-            wrap -= 1;
-        }
+fn mod_add(a: i64, b: i64, l: i64) -> i64 {
+    let modulo = l - 1;
+    if b > 0 {
+        1 + (a + b - 1) % modulo
     } else {
-        while sum >= m {
-            sum -= m;
-            wrap += 1;
-        }
+        (modulo + 1 + (a + b - 1) % modulo) % modulo
     }
-    (wrap, sum)
 }
 
 fn mix(items: &mut Vec<Item>) {
     let len = items.len() as i64;
-    let mut moved = 0;
+    let mut id = 0;
     let mut idx = 0;
-    while moved < len {
-        if items[idx].v == 0 {
-            items[idx].moved = true;
-            moved += 1;
+    while id < len {
+        while items[idx].id != id {
+            idx = (idx + 1) % len as usize;
         }
-        if items[idx].moved {
+        id += 1;
+        if items[idx].v == 0 {
             idx = (idx + 1) % len as usize;
             continue;
         }
-        let mut item = items.remove(idx);
-        let (wrap, mut new_idx) = mod_add(idx as i64, item.v, len);
-        if wrap < 0 {
-            // wrap-around left
-            if new_idx == 0 {
-                (_, new_idx) = mod_add(new_idx, wrap - 1, len);
-            } else {
-                (_, new_idx) = mod_add(new_idx, wrap, len);
-            }
-        }
-        if wrap > 0 {
-            // wrap-around right
-            if new_idx == len - 1 {
-                (_, new_idx) = mod_add(new_idx, wrap + 1, len);
-            } else {
-                (_, new_idx) = mod_add(new_idx, wrap, len);
-            }
-        }
-        item.moved = true;
-        moved += 1;
+        let item = items.remove(idx);
+        let new_idx = mod_add(idx as i64, item.v, len);
         items.insert(new_idx as usize, item);
     }
 }
@@ -83,24 +56,40 @@ fn score(items: &Vec<Item>) -> i64 {
     items[p1].v + items[p2].v + items[p3].v
 }
 
+fn load_items(filename: &str, multiplier: i64) -> Vec<Item> {
+    let mut items = load::<Item>(filename);
+    for (id, item) in items.iter_mut().enumerate() {
+        item.id = id as i64;
+        item.v *= multiplier;
+    }
+    items
+}
+
 pub fn part1() -> i64 {
-    let mut numbers: Vec<Item> = load("data/day20.txt");
+    let mut numbers: Vec<Item> = load_items("data/day20.txt", 1);
     mix(&mut numbers);
     score(&numbers)
 }
 
-pub fn part2() {
-    // let mut numbers: Vec<Item> = vec!["1", "2", "-3", "3", "-2", "0", "4"]
-    // .into_iter()
-    // .map(|s| s.parse().unwrap())
-    // .collect();
+pub fn part2() -> i64 {
+    let multiplier = 811589153;
+    let mut numbers = load_items("data/day20.txt", multiplier);
+    for _ in 0..10 {
+        mix(&mut numbers);
+    }
+    score(&numbers)
 }
 
 pub fn do_mix(data: &[i64]) -> Vec<i64> {
     let mut data: Vec<Item> = data
         .into_iter()
         .map(|i| format!("{}", i))
-        .map(|s| s.parse().unwrap())
+        .map(|s| s.parse::<Item>().unwrap())
+        .enumerate()
+        .map(|(id, mut item)| {
+            item.id = id as i64;
+            item
+        })
         .collect();
     mix(&mut data);
     data.into_iter().map(|i| i.v).collect()
@@ -120,16 +109,26 @@ mod tests {
         assert_eq!(super::do_mix(&[0, 0, 2]), vec![0, 0, 2]);
         assert_eq!(super::do_mix(&[0, 0, 3]), vec![0, 3, 0]);
         assert_eq!(super::do_mix(&[0, 0, 4]), vec![0, 0, 4]);
+        assert_eq!(super::do_mix(&[5, 0, 0]), vec![0, 5, 0]);
+        assert_eq!(super::do_mix(&[0, 5, 0]), vec![0, 0, 5]);
+        assert_eq!(super::do_mix(&[0, 0, 5]), vec![0, 5, 0]);
+        assert_eq!(super::do_mix(&[0, 0, 6]), vec![0, 0, 6]);
+        assert_eq!(super::do_mix(&[0, 0, 15]), vec![0, 15, 0]);
         assert_eq!(super::do_mix(&[-1, 0, 0]), vec![0, -1, 0]);
         assert_eq!(super::do_mix(&[-2, 0, 0]), vec![-2, 0, 0]);
         assert_eq!(super::do_mix(&[-3, 0, 0]), vec![0, -3, 0]);
         assert_eq!(super::do_mix(&[-4, 0, 0]), vec![-4, 0, 0]);
+        assert_eq!(super::do_mix(&[-15, 0, 0]), vec![0, -15, 0]);
         assert_eq!(super::do_mix(&[0, -1, 0]), vec![-1, 0, 0]);
         assert_eq!(super::do_mix(&[0, -2, 0]), vec![0, -2, 0]);
         assert_eq!(super::do_mix(&[0, -3, 0]), vec![-3, 0, 0]);
         assert_eq!(super::do_mix(&[0, 0, -1]), vec![0, -1, 0]);
         assert_eq!(super::do_mix(&[0, 0, -2]), vec![-2, 0, 0]);
         assert_eq!(super::do_mix(&[0, 0, -3]), vec![0, -3, 0]);
+        assert_eq!(super::do_mix(&[0, 0, -4]), vec![-4, 0, 0]);
+        assert_eq!(super::do_mix(&[0, 0, -5]), vec![0, -5, 0]);
+        assert_eq!(super::do_mix(&[0, 0, -6]), vec![-6, 0, 0]);
+        assert_eq!(super::do_mix(&[0, 0, -15]), vec![0, -15, 0]);
     }
 
     #[test]
@@ -140,5 +139,9 @@ mod tests {
     }
 
     #[test]
-    fn test_part2() {}
+    fn test_part2() {
+        let sum = super::part2();
+        println!("Sum: {}", sum);
+        assert_eq!(sum, 4248669215955);
+    }
 }

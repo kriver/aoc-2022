@@ -1,5 +1,3 @@
-use lazy_static::lazy_static;
-use regex::{Captures, Regex};
 use std::str::FromStr;
 
 use crate::util::load;
@@ -22,24 +20,12 @@ impl FromStr for Move {
     type Err = ();
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
-        lazy_static! {
-            static ref RE: Regex = Regex::new(r"^move (\d+) from (\d+) to (\d+)$").unwrap();
-        }
-
-        fn from_captures(c: &Captures, i: usize) -> usize {
-            c.get(i).unwrap().as_str().parse().unwrap()
-        }
-
-        let cap = RE.captures(s);
-        if let Some(c) = cap {
-            Ok(Move {
-                num: from_captures(&c, 1),
-                from: from_captures(&c, 2) - 1,
-                to: from_captures(&c, 3) - 1,
-            })
-        } else {
-            Err(())
-        }
+        let tokens: Vec<&str> = s.split_whitespace().collect();
+        Ok(Move {
+            num: tokens[1].parse().unwrap(),
+            from: tokens[3].parse::<usize>().unwrap() - 1,
+            to: tokens[5].parse::<usize>().unwrap() - 1,
+        })
     }
 }
 

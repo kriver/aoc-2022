@@ -1,4 +1,7 @@
-use std::{collections::HashMap, ops::Add};
+use std::{
+    collections::{HashMap, HashSet},
+    ops::Add,
+};
 
 use crate::util::load;
 
@@ -20,13 +23,10 @@ impl Add for Coord {
 }
 
 #[derive(Debug)]
-struct Elf {}
-
-#[derive(Debug)]
 struct Grid {
     tl: Coord, // top left corner
     br: Coord, // bottom right corner
-    elves: HashMap<Coord, Elf>,
+    elves: HashSet<Coord>,
     look_idx: usize,
     look: HashMap<Coord, Vec<usize>>,
 }
@@ -36,7 +36,7 @@ impl Grid {
         let lines = load::<String>(filename);
         let mut tl = Coord { x: 0, y: 0 };
         let mut br = Coord { x: 0, y: 0 };
-        let mut elves = HashMap::new();
+        let mut elves = HashSet::new();
         for (y, line) in lines.into_iter().enumerate() {
             for (x, c) in line.chars().enumerate() {
                 match c {
@@ -45,13 +45,10 @@ impl Grid {
                         br.x = br.x.max(x as i32);
                         tl.y = tl.y.min(y as i32);
                         br.y = br.y.max(y as i32);
-                        elves.insert(
-                            Coord {
-                                x: x as i32,
-                                y: y as i32,
-                            },
-                            Elf {},
-                        );
+                        elves.insert(Coord {
+                            x: x as i32,
+                            y: y as i32,
+                        });
                     }
                     _ => (),
                 }
@@ -99,7 +96,7 @@ impl Grid {
         let mut counts = [0; 4];
         for (delta, indices) in &self.look {
             let np = *pos + *delta;
-            if self.elves.contains_key(&np) {
+            if self.elves.contains(&np) {
                 for index in indices {
                     counts[*index] += 1;
                 }
@@ -132,7 +129,7 @@ impl Grid {
 
     fn move_apart_once(&mut self) -> usize {
         let mut proposals: HashMap<Coord, Vec<Coord>> = HashMap::new();
-        for (coord, _elf) in &self.elves {
+        for coord in &self.elves {
             let nb = self.neighbours(coord);
             if nb.iter().sum::<usize>() == 0 {
                 continue; // lonely elf
@@ -152,12 +149,12 @@ impl Grid {
         let mut moves = 0;
         for (dst, sources) in proposals {
             if sources.len() == 1 {
-                let elf = self.elves.remove(&sources[0]).unwrap();
+                self.elves.remove(&sources[0]);
                 self.tl.x = self.tl.x.min(dst.x as i32);
                 self.br.x = self.br.x.max(dst.x as i32);
                 self.tl.y = self.tl.y.min(dst.y as i32);
                 self.br.y = self.br.y.max(dst.y as i32);
-                self.elves.insert(dst, elf);
+                self.elves.insert(dst);
                 moves += 1;
             }
         }

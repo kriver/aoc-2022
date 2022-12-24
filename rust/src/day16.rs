@@ -7,8 +7,9 @@ use crate::util::load;
 
 #[derive(Debug)]
 struct QueueItem<'a> {
-    time_left: u32,
-    name: &'a str,
+    time_left: [u32; 2],
+    name: [&'a str; 2],
+    next: usize,
     pressure: u32,
     visited: u64,
 }
@@ -22,10 +23,7 @@ impl PartialOrd for QueueItem<'_> {
 impl Ord for QueueItem<'_> {
     fn cmp(&self, other: &Self) -> Ordering {
         match self.pressure.cmp(&other.pressure) {
-            Ordering::Equal => match self.time_left.cmp(&other.time_left) {
-                Ordering::Equal => Ordering::Equal,
-                ord => ord,
-            },
+            Ordering::Equal => self.time_left.cmp(&other.time_left),
             ord => ord,
         }
     }
@@ -116,25 +114,32 @@ impl Rooms {
         self.distances = m;
     }
 
-    fn find_max_pressure<'a>(&'a self, q: &mut BinaryHeap<QueueItem<'a>>) -> u32 {
+    fn find_max_pressure<'a>(&'a self, q: &mut BinaryHeap<QueueItem<'a>>, num: usize) -> u32 {
         let mut max = 0;
         loop {
+            println!("{} -- {}", max, q.len());
             match q.pop() {
                 None => return max,
                 Some(qi) => {
                     max = max.max(qi.pressure);
-                    let current = &self.rooms[qi.name];
+                    let current: &Room = &self.rooms[qi.name[qi.next]];
                     for v in self.valves.iter() {
                         let other = &self.rooms[v];
                         if qi.visited & (1 << other.id) > 0 {
                             continue;
                         }
                         let cost = self.distances[current.id][other.id] + 1;
-                        if qi.time_left >= cost {
-                            let tl = qi.time_left - cost;
+                        let mut tl = qi.time_left[qi.next];
+                        if tl >= cost {
+                            tl -= cost;
+                            let mut time_left = qi.time_left.clone();
+                            time_left[qi.next] = tl;
+                            let mut name = qi.name.clone();
+                            name[qi.next] = &other.name;
                             q.push(QueueItem {
-                                time_left: tl,
-                                name: &other.name,
+                                time_left,
+                                name,
+                                next: (qi.next + 1) % num,
                                 pressure: qi.pressure + tl * other.rate,
                                 visited: qi.visited | (1 << other.id),
                             });
@@ -151,18 +156,27 @@ pub fn part1() -> u32 {
     rooms.init_distances();
     let mut queue = BinaryHeap::new();
     queue.push(QueueItem {
-        time_left: 30,
-        name: "AA",
+        time_left: [30, 0],
+        name: ["AA", ""],
+        next: 0,
         pressure: 0,
         visited: 0,
     });
-    rooms.find_max_pressure(&mut queue)
+    rooms.find_max_pressure(&mut queue, 1)
 }
 
 pub fn part2() -> u32 {
-    let mut rooms = Rooms::load("data/day16-test.txt");
+    let mut rooms = Rooms::load("data/day16.txt");
     rooms.init_distances();
-    0
+    let mut queue = BinaryHeap::new();
+    queue.push(QueueItem {
+        time_left: [26, 26],
+        name: ["AA", "AA"],
+        next: 0,
+        pressure: 0,
+        visited: 0,
+    });
+    rooms.find_max_pressure(&mut queue, 2)
 }
 
 mod tests {
@@ -177,6 +191,6 @@ mod tests {
     fn test_part2() {
         let pressure = super::part2();
         println!("Pressure: {}", pressure);
-        assert_eq!(pressure, 0); // too low 2420
+        assert_eq!(pressure, 2496);
     }
 }

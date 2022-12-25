@@ -1,6 +1,6 @@
 use std::{
     cmp::Ordering,
-    collections::{BinaryHeap, HashMap},
+    collections::{BinaryHeap, HashMap, HashSet},
 };
 
 use crate::util::load;
@@ -9,10 +9,17 @@ type Coord = (usize, usize);
 type Blizzards = HashMap<Coord, Vec<u8>>;
 type BitMap = Vec<Vec<u64>>;
 
-#[derive(Debug)]
+#[derive(Debug, Hash, Clone, Copy)]
+enum WalkDirection {
+    Forward,
+    Backward,
+}
+
+#[derive(Debug, Hash, Clone)]
 struct Position {
     minutes: usize,
     coord: Coord,
+    dir: WalkDirection,
 }
 
 impl PartialOrd for Position {
@@ -26,7 +33,11 @@ impl Ord for Position {
     fn cmp(&self, other: &Self) -> Ordering {
         let d1 = self.coord.0 + self.coord.1;
         let d2 = other.coord.0 + other.coord.1;
-        match d1.cmp(&d2) {
+        let m = match self.dir {
+            WalkDirection::Forward => d1.cmp(&d2),
+            WalkDirection::Backward => d1.cmp(&d2).reverse(),
+        };
+        match m {
             Ordering::Equal => self.minutes.cmp(&other.minutes).reverse(),
             ord => ord,
         }
@@ -170,7 +181,7 @@ impl MultiMap {
         if x < self.width - 1 && self.is_empty(x + 1, y, minutes) {
             moves.push((x + 1, y));
         }
-        if y > 1 && self.is_empty(x, y - 1, minutes) {
+        if y > 0 && self.is_empty(x, y - 1, minutes) {
             moves.push((x, y - 1));
         }
         if y < self.height + 1 && self.is_empty(x, y + 1, minutes) {
@@ -179,13 +190,19 @@ impl MultiMap {
         moves
     }
 
-    fn find_path(&mut self) -> usize {
-        let start = (0, 0);
-        let finish = (self.width - 1, self.height + 1);
+    fn find_path(
+        &mut self,
+        start: Coord,
+        finish: Coord,
+        dir: WalkDirection,
+        delay: usize,
+    ) -> usize {
         let mut q = BinaryHeap::from([Position {
-            minutes: 0,
+            minutes: delay,
             coord: start,
+            dir,
         }]);
+        let mut visited: HashSet<Position> = HashSet::new();
         let mut minimum = usize::MAX;
         loop {
             match q.pop() {
@@ -193,30 +210,37 @@ impl MultiMap {
                 Some(Position {
                     minutes,
                     coord: (x, y),
+                    dir: _,
                 }) => {
                     if minutes + (self.width - 1 - x) + (self.height + 1 - y) >= minimum {
                         // all possible further paths from this will be too long
                         continue;
                     }
                     let moves = self.possible_moves((x, y), minutes);
-                    if q.len() % 200000 == 0 {
-                        self.display(x, y, minutes, minimum, q.len());
-                        println!("Possible move: {:?}", moves);
-                    }
+                    // if q.len() % 100 == 0 {
+                    //     self.display(x, y, minutes, minimum, q.len());
+                    //     println!("Possible move: {:?}", moves);
+                    // }
                     for m in moves {
                         if m == finish {
                             // found a path
                             minimum = minimum.min(minutes + 1);
                         } else {
-                            q.push(Position {
+                            let p = Position {
                                 minutes: minutes + 1,
                                 coord: m,
-                            })
+                                dir,
+                            };
+                            if !visited.contains(&p) {
+                                visited.insert(p.clone());
+                                q.push(p);
+                            }
                         }
                     }
                 }
             }
         }
+        // self.display(finish.0, finish.1, minimum, minimum, 0);
         minimum
     }
 }
@@ -226,7 +250,22 @@ pub fn part1() -> usize {
     // let mut mm = MultiMap::build(Map::load("data/day24-test.txt"), 12);
     // Grid repeats every 600 iterations for actual
     let mut mm = MultiMap::build(Map::load("data/day24.txt"), 600);
-    mm.find_path()
+    let start = (0, 0);
+    let finish = (mm.width - 1, mm.height + 1);
+    mm.find_path(start, finish, WalkDirection::Forward, 0)
+}
+
+pub fn part2() -> usize {
+    // let mut mm = MultiMap::build(Map::load("data/day24-test.txt"), 12);
+    let mut mm = MultiMap::build(Map::load("data/day24.txt"), 600);
+    let start = (0, 0);
+    let finish = (mm.width - 1, mm.height + 1);
+    let mut times = Vec::new();
+    times.push(mm.find_path(start, finish, WalkDirection::Forward, 0));
+    times.push(mm.find_path(finish, start, WalkDirection::Backward, times[0]));
+    times.push(mm.find_path(start, finish, WalkDirection::Forward, times[1]));
+    println!("Times: {:?}", times);
+    times[2]
 }
 
 mod tests {
@@ -234,9 +273,13 @@ mod tests {
     fn test_part1() {
         let minutes = super::part1();
         println!("Minutes needed: {}", minutes);
-        assert_eq!(minutes, 0);
+        assert_eq!(minutes, 253);
     }
 
     #[test]
-    fn test_part2() {}
+    fn test_part2() {
+        let minutes = super::part2();
+        println!("Minutes needed: {}", minutes);
+        assert_eq!(minutes, 0); // too high 925
+    }
 }

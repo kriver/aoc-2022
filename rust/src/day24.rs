@@ -146,22 +146,22 @@ impl MultiMap {
         }
     }
 
-    fn display(&self, x: usize, y: usize, minutes: usize, min: usize, sz: usize) {
-        let g = minutes % self.grids.len();
-        let grid = &self.grids[g];
-        let offset = 64 * grid[0].len() - x;
-        println!(
-            " {:>offset$}     minutes passed: {} ({}), pos: {},{}, #q = {}",
-            'v', minutes, min, x, y, sz
-        );
-        for (r, row) in grid.iter().enumerate() {
-            print!("{}", if r == y { '>' } else { ' ' });
-            for word in row.iter().rev() {
-                print!("{:064b}", word);
-            }
-            println!()
-        }
-    }
+    // fn display(&self, x: usize, y: usize, minutes: usize, min: usize, sz: usize) {
+    //     let g = minutes % self.grids.len();
+    //     let grid = &self.grids[g];
+    //     let offset = 64 * grid[0].len() - x;
+    //     println!(
+    //         " {:>offset$}     minutes passed: {} ({}), pos: {},{}, #q = {}",
+    //         'v', minutes, min, x, y, sz
+    //     );
+    //     for (r, row) in grid.iter().enumerate() {
+    //         print!("{}", if r == y { '>' } else { ' ' });
+    //         for word in row.iter().rev() {
+    //             print!("{:064b}", word);
+    //         }
+    //         println!()
+    //     }
+    // }
 
     fn is_empty(&self, x: usize, y: usize, minutes: usize) -> bool {
         let g = minutes % self.grids.len();
@@ -212,15 +212,11 @@ impl MultiMap {
                     coord: (x, y),
                     dir: _,
                 }) => {
-                    if minutes + (self.width - 1 - x) + (self.height + 1 - y) >= minimum {
+                    if minutes + finish.0.abs_diff(x) + finish.1.abs_diff(y) >= minimum {
                         // all possible further paths from this will be too long
                         continue;
                     }
                     let moves = self.possible_moves((x, y), minutes);
-                    // if q.len() % 100 == 0 {
-                    //     self.display(x, y, minutes, minimum, q.len());
-                    //     println!("Possible move: {:?}", moves);
-                    // }
                     for m in moves {
                         if m == finish {
                             // found a path
@@ -240,7 +236,6 @@ impl MultiMap {
                 }
             }
         }
-        // self.display(finish.0, finish.1, minimum, minimum, 0);
         minimum
     }
 }
@@ -264,7 +259,6 @@ pub fn part2() -> usize {
     times.push(mm.find_path(start, finish, WalkDirection::Forward, 0));
     times.push(mm.find_path(finish, start, WalkDirection::Backward, times[0]));
     times.push(mm.find_path(start, finish, WalkDirection::Forward, times[1]));
-    println!("Times: {:?}", times);
     times[2]
 }
 
@@ -280,6 +274,6 @@ mod tests {
     fn test_part2() {
         let minutes = super::part2();
         println!("Minutes needed: {}", minutes);
-        assert_eq!(minutes, 0); // too high 925
+        assert_eq!(minutes, 794);
     }
 }

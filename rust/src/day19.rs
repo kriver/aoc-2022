@@ -1,5 +1,7 @@
 use std::{
-    collections::HashMap,
+    cmp::Ordering,
+    collections::{BinaryHeap, HashSet},
+    fmt::{Display, Formatter},
     ops::{Add, Sub},
     str::FromStr,
 };
@@ -27,17 +29,17 @@ impl FromStr for Resource {
     }
 }
 
-#[derive(Debug)]
-struct Inventory {
+#[derive(Debug, Clone)]
+struct Counters {
     ore: u32,
     clay: u32,
     obsidian: u32,
     geode: u32,
 }
 
-impl From<&[&str]> for Inventory {
+impl From<&[&str]> for Counters {
     fn from(s: &[&str]) -> Self {
-        let mut inv = Inventory::new();
+        let mut inv = Counters::new();
         let mut i = 0;
         while i < s.len() {
             let n: u32 = s[i].parse().unwrap();
@@ -54,11 +56,11 @@ impl From<&[&str]> for Inventory {
     }
 }
 
-impl<'a> Sub for &'a Inventory {
-    type Output = Inventory;
+impl<'a> Sub for &'a Counters {
+    type Output = Counters;
 
     fn sub(self, rhs: Self) -> Self::Output {
-        Inventory {
+        Counters {
             ore: self.ore - rhs.ore,
             clay: self.clay - rhs.clay,
             obsidian: self.obsidian - rhs.obsidian,
@@ -67,11 +69,11 @@ impl<'a> Sub for &'a Inventory {
     }
 }
 
-impl<'a> Add for &'a Inventory {
-    type Output = Inventory;
+impl<'a> Add for &'a Counters {
+    type Output = Counters;
 
     fn add(self, rhs: Self) -> Self::Output {
-        Inventory {
+        Counters {
             ore: self.ore + rhs.ore,
             clay: self.clay + rhs.clay,
             obsidian: self.obsidian + rhs.obsidian,
@@ -80,9 +82,9 @@ impl<'a> Add for &'a Inventory {
     }
 }
 
-impl Inventory {
+impl Counters {
     fn new() -> Self {
-        Inventory {
+        Counters {
             ore: 0,
             clay: 0,
             obsidian: 0,
@@ -94,7 +96,7 @@ impl Inventory {
 #[derive(Debug)]
 struct Robot {
     generates: Resource,
-    needs: Inventory,
+    needs: Counters,
 }
 
 impl FromStr for Robot {
@@ -103,39 +105,93 @@ impl FromStr for Robot {
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         let tokens: Vec<&str> = s.split_whitespace().collect();
         let generates: Resource = tokens[1].parse().unwrap();
-        let needs: Inventory = Inventory::from(&tokens[4..]);
+        let needs: Counters = Counters::from(&tokens[4..]);
         Ok(Robot { generates, needs })
     }
 }
 
 impl Robot {
-    fn can_produce(&self, inv: &Inventory) -> bool {
+    fn can_produce(&self, inv: &Counters) -> bool {
         inv.ore >= self.needs.ore
             && inv.clay >= self.needs.clay
             && inv.obsidian >= self.needs.obsidian
     }
 }
 
-#[derive(Debug)]
-struct State {
-    rec: u32,                   // recursion level
-    tl: u32,                    // time left
-    rc: HashMap<Resource, u32>, // robot counts
-    inv: Inventory,
+struct State<'a> {
+    tl: u32, // time left
+    robots: Counters,
+    inv: Counters,
+    bp: &'a Blueprint,
 }
 
-impl State {
-    fn new_with(&self, robot: &Robot, production: &Inventory) -> Self {
-        let mut rc = self.rc.clone();
-        rc.entry(robot.generates)
-            .and_modify(|c| *c += 1)
-            .or_insert(1);
-        State {
-            rec: self.rec + 1,
-            tl: self.tl - 1,
-            rc,
-            inv: &(&self.inv - &robot.needs) + production,
+impl Display for State<'_> {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
+            "State[{}, Robots {:?}, {:?}]",
+            self.tl, self.robots, self.inv
+        )
+    }
+}
+
+impl PartialOrd for State<'_> {
+    fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
+        Some(self.cmp(other))
+    }
+}
+
+impl Ord for State<'_> {
+    fn cmp(&self, other: &Self) -> Ordering {
+        // ordered by number of robots, advanced to simple
+        match self.robots.geode.cmp(&other.robots.geode) {
+            Ordering::Equal => match self.robots.obsidian.cmp(&other.robots.obsidian) {
+                Ordering::Equal => match self.robots.clay.cmp(&other.robots.clay) {
+                    Ordering::Equal => self.robots.ore.cmp(&other.robots.ore),
+                    ord => ord,
+                },
+                ord => ord,
+            },
+            ord => ord,
         }
+    }
+}
+
+impl PartialEq for State<'_> {
+    fn eq(&self, other: &Self) -> bool {
+        self.cmp(other) == Ordering::Equal
+    }
+}
+
+impl Eq for State<'_> {}
+
+impl<'a> State<'a> {
+    fn new_with(&self, robot: &Robot, production: &Counters) -> Self {
+        let mut robots = self.robots.clone();
+        match robot.generates {
+            Resource::Ore => robots.ore += 1,
+            Resource::Clay => robots.clay += 1,
+            Resource::Obsidian => robots.obsidian += 1,
+            Resource::Geode => robots.geode += 1,
+        }
+        State {
+            tl: self.tl - 1,
+            robots,
+            inv: &(&self.inv - &robot.needs) + production,
+            bp: self.bp,
+        }
+    }
+
+    fn key(&self) -> (u64, u64, u32) {
+        let robots = ((self.robots.ore as u64) << 48)
+            | ((self.robots.clay as u64) << 32)
+            | ((self.robots.obsidian as u64) << 16)
+            | ((self.robots.geode as u64) << 0);
+        let inventory = ((self.inv.ore as u64) << 48)
+            | ((self.inv.clay as u64) << 32)
+            | ((self.inv.obsidian as u64) << 16)
+            | ((self.inv.geode as u64) << 0);
+        (robots as u64, inventory as u64, self.tl)
     }
 
     fn produce(&mut self) {
@@ -143,17 +199,8 @@ impl State {
         self.inv = &self.inv + &self.production();
     }
 
-    fn production(&self) -> Inventory {
-        let mut inv = Inventory::new();
-        for (r, c) in &self.rc {
-            match r {
-                Resource::Ore => inv.ore = *c,
-                Resource::Clay => inv.clay = *c,
-                Resource::Obsidian => inv.obsidian = *c,
-                Resource::Geode => inv.geode = *c,
-            }
-        }
-        inv
+    fn production(&self) -> Counters {
+        self.robots.clone()
     }
 }
 
@@ -179,54 +226,89 @@ impl FromStr for Blueprint {
 }
 
 impl Blueprint {
-    fn produce(&self, mut state: State) -> u32 {
-        if state.tl == 0 {
-            state.inv.geode
-        } else {
-            // determine how much we will produce this cycle
-            let production = state.production();
-            // create (or not) new robots
-            let mut next_states: Vec<State> = vec![];
-            for robot in &self.rules {
-                if robot.can_produce(&state.inv) {
-                    next_states.push(state.new_with(&robot, &production));
+    fn produce(&self) -> u32 {
+        // not ideal yet
+        fn should_add(s: &State, best: u32) -> bool {
+            // assuming we can make a geode robot for each `tl` left and generate geodes along the way....
+            let tl = s.tl as f32;
+            if ((tl * (tl - 1.) / 2.).round() as u32 + s.tl * s.robots.geode + s.inv.geode) <= best
+            {
+                return false;
+            }
+            // more inventory than needed for creating robots... we should have created at least one instead
+            if s.inv.ore > 3 * s.bp.rules.iter().map(|r| r.needs.ore).sum::<u32>() {
+                return false;
+            }
+            if s.inv.clay > 3 * s.bp.rules[2].needs.clay {
+                return false;
+            }
+            if s.inv.obsidian > 3 * s.bp.rules[3].needs.obsidian {
+                return false;
+            }
+            // all ok
+            true
+        }
+        let mut q = BinaryHeap::from([State {
+            tl: 24,
+            robots: Counters {
+                ore: 1,
+                clay: 0,
+                obsidian: 0,
+                geode: 0,
+            },
+            inv: Counters::new(),
+            bp: &self,
+        }]);
+        let mut visited = HashSet::new();
+        let mut max = 0;
+        loop {
+            match q.pop() {
+                None => break,
+                Some(mut s) => {
+                    // println!("Best = {}, #q = {}/{}", max, q.len(), visited.len());
+                    if s.tl == 0 {
+                        max = max.max(s.inv.geode);
+                        continue;
+                    }
+                    // determine how much we will produce this cycle
+                    let production = s.production();
+                    // create (or not) new robots
+                    for robot in &self.rules {
+                        if robot.can_produce(&s.inv) {
+                            let ns = s.new_with(&robot, &production);
+                            if should_add(&ns, max) & !visited.contains(&ns.key()) {
+                                // println!("Adding extra {:?} robot {}", robot.generates, ns);
+                                visited.insert(ns.key());
+                                q.push(ns);
+                            }
+                        }
+                    }
+                    // original state is also a candidate (no new robots created)
+                    s.produce();
+                    if should_add(&s, max) & !visited.contains(&s.key()) {
+                        // println!("Adding {}", s);
+                        visited.insert(s.key());
+                        q.push(s);
+                    }
                 }
             }
-            // println!("({:2}) {:?} - {:?}", next_states.len(), state, next_states);
-            // original state is also a candidate (no new robots created)
-            state.produce();
-            next_states.push(state);
-            // recurse using new states
-            next_states
-                .into_iter()
-                .map(|s| self.produce(s))
-                .max()
-                .unwrap()
         }
-        // FIXME need to mulitply by ID
+        // println!("{}: {}", self.id, max);
+        self.id * max as u32
     }
 }
 
 pub fn part1() -> u32 {
-    let blueprints: Vec<Blueprint> = load("data/day19-test.txt");
-    let state = State {
-        rec: 0,
-        tl: 24,
-        rc: HashMap::from([(Resource::Ore, 1)]),
-        inv: Inventory::new(),
-    };
-    println!("{}", blueprints[0].produce(state));
-    0
+    let blueprints: Vec<Blueprint> = load("data/day19.txt");
+    blueprints.into_iter().map(|bp| bp.produce()).sum()
 }
-
-// TODO use linear programming ??
 
 mod tests {
     #[test]
     fn test_part1() {
         let quality = super::part1();
         println!("Total quality: {}", quality);
-        assert_eq!(quality, 0);
+        assert_eq!(quality, 1466);
     }
 
     #[test]

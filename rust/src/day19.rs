@@ -15,6 +15,7 @@ enum Resource {
     Obsidian,
     Geode,
 }
+
 impl FromStr for Resource {
     type Err = ();
 
@@ -208,6 +209,7 @@ impl<'a> State<'a> {
 struct Blueprint {
     id: u32,
     rules: Vec<Robot>,
+    max: Counters, // maximum amount of resources needed to produce all robots once
 }
 
 impl FromStr for Blueprint {
@@ -221,12 +223,18 @@ impl FromStr for Blueprint {
             .filter(|r| r.len() != 0)
             .map(|r| r.parse().unwrap())
             .collect();
-        Ok(Blueprint { id, rules })
+        let max = Counters {
+            ore: rules.iter().map(|r| r.needs.ore).sum(),
+            clay: rules[2].needs.clay,
+            obsidian: rules[3].needs.obsidian,
+            geode: 0,
+        };
+        Ok(Blueprint { id, rules, max })
     }
 }
 
 impl Blueprint {
-    fn produce(&self) -> u32 {
+    fn produce(&self, time: u32) -> u32 {
         // not ideal yet
         fn should_add(s: &State, best: u32) -> bool {
             // assuming we can make a geode robot for each `tl` left and generate geodes along the way....
@@ -235,21 +243,18 @@ impl Blueprint {
             {
                 return false;
             }
-            // more inventory than needed for creating robots... we should have created at least one instead
-            if s.inv.ore > 3 * s.bp.rules.iter().map(|r| r.needs.ore).sum::<u32>() {
-                return false;
-            }
-            if s.inv.clay > 3 * s.bp.rules[2].needs.clay {
-                return false;
-            }
-            if s.inv.obsidian > 3 * s.bp.rules[3].needs.obsidian {
+            // more inventory than needed for creating robots... we should have created at least one
+            if (s.inv.ore > s.bp.max.ore)
+                && (s.inv.clay > s.bp.max.clay)
+                && (s.inv.obsidian > s.bp.max.obsidian)
+            {
                 return false;
             }
             // all ok
             true
         }
         let mut q = BinaryHeap::from([State {
-            tl: 24,
+            tl: time,
             robots: Counters {
                 ore: 1,
                 clay: 0,
@@ -265,9 +270,9 @@ impl Blueprint {
             match q.pop() {
                 None => break,
                 Some(mut s) => {
-                    // println!("Best = {}, #q = {}/{}", max, q.len(), visited.len());
                     if s.tl == 0 {
                         max = max.max(s.inv.geode);
+                        // println!("Best = {}, #q = {}/{}", max, q.len(), visited.len());
                         continue;
                     }
                     // determine how much we will produce this cycle
@@ -294,13 +299,24 @@ impl Blueprint {
             }
         }
         // println!("{}: {}", self.id, max);
-        self.id * max as u32
+        max as u32
     }
 }
 
 pub fn part1() -> u32 {
     let blueprints: Vec<Blueprint> = load("data/day19.txt");
-    blueprints.into_iter().map(|bp| bp.produce()).sum()
+    blueprints
+        .into_iter()
+        .map(|bp| bp.id * bp.produce(24))
+        .sum()
+}
+
+pub fn part2() -> u32 {
+    let blueprints: Vec<Blueprint> = load("data/day19.txt");
+    blueprints[0..3]
+        .into_iter()
+        .map(|bp| bp.produce(32))
+        .product()
 }
 
 mod tests {
@@ -312,5 +328,9 @@ mod tests {
     }
 
     #[test]
-    fn test_part2() {}
+    fn test_part2() {
+        let product = super::part2();
+        println!("Product: {}", product);
+        assert_eq!(product, 8250);
+    }
 }

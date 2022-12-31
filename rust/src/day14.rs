@@ -2,8 +2,8 @@ use std::{collections::HashMap, str::FromStr};
 
 use crate::util::load;
 
-#[derive(Debug, Hash, PartialEq, Eq)]
-struct Coord {
+#[derive(Debug, Hash, PartialEq, Eq, Clone)]
+pub struct Coord {
     x: i32,
     y: i32,
 }
@@ -21,6 +21,18 @@ impl FromStr for Coord {
 }
 
 impl Coord {
+    pub fn new(x: i32, y: i32) -> Self {
+        Coord { x, y }
+    }
+
+    pub fn x(&self) -> i32 {
+        self.x
+    }
+
+    pub fn y(&self) -> i32 {
+        self.y
+    }
+
     fn move_down(&mut self) {
         self.y += 1;
     }
@@ -34,62 +46,76 @@ impl Coord {
     }
 }
 
-enum Type {
+pub enum Type {
     Rock,
     Sand,
 }
 
-struct Cave {
+pub enum Action {
+    Falling(Coord),
+    Settled(Coord, Coord),
+    Done,
+}
+
+pub struct Cave {
     grid: HashMap<Coord, Type>,
     lowest: i32,
     floor: bool,
     units: usize,
 }
 
-fn load_cave(floor: bool) -> Cave {
-    let lines: Vec<String> = load("data/day14.txt");
-    let mut grid = HashMap::new();
-    let mut lowest = 0;
-    for line in lines {
-        let mut prev: Option<Coord> = None;
-        for point in line.split(" -> ") {
-            let to: Coord = point.parse().unwrap();
-            lowest = lowest.max(to.y);
-            if let Some(from) = prev {
-                if from.x == to.x {
-                    for y in from.y.min(to.y)..=to.y.max(from.y) {
-                        grid.insert(
-                            Coord {
-                                x: from.x,
-                                y: y as i32,
-                            },
-                            Type::Rock,
-                        );
-                    }
-                } else {
-                    for x in from.x.min(to.x)..=to.x.max(from.x) {
-                        grid.insert(
-                            Coord {
-                                x: x as i32,
-                                y: from.y,
-                            },
-                            Type::Rock,
-                        );
+impl Cave {
+    pub fn load(floor: bool) -> Self {
+        let lines: Vec<String> = load("data/day14.txt");
+        let mut grid = HashMap::new();
+        let mut lowest = 0;
+        for line in lines {
+            let mut prev: Option<Coord> = None;
+            for point in line.split(" -> ") {
+                let to: Coord = point.parse().unwrap();
+                lowest = lowest.max(to.y);
+                if let Some(from) = prev {
+                    if from.x == to.x {
+                        for y in from.y.min(to.y)..=to.y.max(from.y) {
+                            grid.insert(
+                                Coord {
+                                    x: from.x,
+                                    y: y as i32,
+                                },
+                                Type::Rock,
+                            );
+                        }
+                    } else {
+                        for x in from.x.min(to.x)..=to.x.max(from.x) {
+                            grid.insert(
+                                Coord {
+                                    x: x as i32,
+                                    y: from.y,
+                                },
+                                Type::Rock,
+                            );
+                        }
                     }
                 }
+                prev = Some(to);
             }
-            prev = Some(to);
+        }
+        Cave {
+            grid,
+            lowest,
+            floor,
+            units: 0,
         }
     }
-    Cave {
-        grid,
-        lowest,
-        floor,
-        units: 0,
-    }
-}
 
-impl Cave {
+    pub fn grid_at(&self, x: i32, y: i32) -> Option<&Type> {
+        self.grid.get(&Coord { x, y })
+    }
+
+    pub fn lowest(&self) -> i32 {
+        self.lowest
+    }
+
     fn free_below(&self, Coord { x, y }: &Coord) -> Vec<bool> {
         ((x - 1)..=(x + 1))
             .into_iter()
@@ -117,13 +143,11 @@ impl Cave {
         }
     }
 
-    fn insert(&mut self, sand: Coord, show: bool) -> Option<Coord> {
+    fn insert(&mut self, sand: &Coord) -> Option<Coord> {
         self.units += 1;
         let y = sand.y;
-        self.grid.insert(sand, Type::Sand);
-        if show {
-            self.display(y as usize);
-        }
+        self.grid.insert(sand.clone(), Type::Sand);
+
         if self.floor && y == 0 {
             None
         } else {
@@ -131,43 +155,57 @@ impl Cave {
         }
     }
 
+    pub fn sandfall_single_step(&mut self, mut sand: Coord) -> Action {
+        if sand.y > self.lowest {
+            if !self.floor {
+                return Action::Done;
+            } else {
+                return match self.insert(&sand) {
+                    None => Action::Done,
+                    Some(s) => Action::Settled(sand, s),
+                };
+            }
+        }
+        let free = self.free_below(&sand);
+        if free[1] {
+            sand.move_down();
+        } else if free[0] {
+            sand.move_down_left();
+        } else if free[2] {
+            sand.move_down_right();
+        } else {
+            return match self.insert(&sand) {
+                None => Action::Done,
+                Some(s) => Action::Settled(sand, s),
+            };
+        }
+        Action::Falling(sand)
+    }
+
     fn sandfall(&mut self, show: bool) {
         let mut sand = Coord { x: 500, y: 0 };
         loop {
-            if sand.y > self.lowest {
-                if !self.floor {
-                    break;
-                } else {
-                    sand = match self.insert(sand, show) {
-                        None => break,
-                        Some(s) => s,
-                    };
+            match self.sandfall_single_step(sand) {
+                Action::Done => break,
+                Action::Falling(s) | Action::Settled(_, s) => {
+                    sand = s;
+                    if show {
+                        self.display(sand.y as usize);
+                    }
                 }
-            }
-            let free = self.free_below(&sand);
-            if free[1] {
-                sand.move_down();
-            } else if free[0] {
-                sand.move_down_left();
-            } else if free[2] {
-                sand.move_down_right();
-            } else {
-                sand = match self.insert(sand, show) {
-                    None => break,
-                    Some(s) => s,
-                };
             }
         }
     }
 }
+
 pub fn part1() -> usize {
-    let mut cave = load_cave(false);
+    let mut cave = Cave::load(false);
     cave.sandfall(false);
     cave.units
 }
 
 pub fn part2() -> usize {
-    let mut cave = load_cave(true);
+    let mut cave = Cave::load(true);
     cave.sandfall(false);
     cave.units
 }

@@ -3,4 +3,9 @@ name = "aoc_2022"
 version = "0.1.0"
 edition = "2021"
 
+[[bin]]
+name = "day14-gfx"
+
 [dependencies]
+pixels = "0.11.0"
+winit = "0.27.5"

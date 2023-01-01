@@ -117,7 +117,6 @@ impl Rooms {
     fn find_max_pressure<'a>(&'a self, q: &mut BinaryHeap<QueueItem<'a>>, num: usize) -> u32 {
         let mut max = 0;
         loop {
-            println!("{} -- {}", max, q.len());
             match q.pop() {
                 None => return max,
                 Some(qi) => {
@@ -132,17 +131,22 @@ impl Rooms {
                         let mut tl = qi.time_left[qi.next];
                         if tl >= cost {
                             tl -= cost;
-                            let mut time_left = qi.time_left.clone();
-                            time_left[qi.next] = tl;
-                            let mut name = qi.name.clone();
-                            name[qi.next] = &other.name;
-                            q.push(QueueItem {
-                                time_left,
-                                name,
-                                next: (qi.next + 1) % num,
-                                pressure: qi.pressure + tl * other.rate,
-                                visited: qi.visited | (1 << other.id),
-                            });
+                            if tl <= 2 {
+                                // no more time to move and open a valve
+                                max = max.max(qi.pressure + tl * other.rate);
+                            } else {
+                                let mut time_left = qi.time_left.clone();
+                                time_left[qi.next] = tl;
+                                let mut name = qi.name.clone();
+                                name[qi.next] = &other.name;
+                                q.push(QueueItem {
+                                    time_left,
+                                    name,
+                                    next: (qi.next + 1) % num,
+                                    pressure: qi.pressure + tl * other.rate,
+                                    visited: qi.visited | (1 << other.id),
+                                });
+                            }
                         }
                     }
                 }
